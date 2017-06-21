@@ -33,6 +33,7 @@ python setup.py install
 ## Requirements
 * TensorFlow (1.0 or later)
 * python 2.7
+* networkx
 
 ## Run the demo
 
