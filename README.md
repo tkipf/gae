@@ -7,7 +7,7 @@ T. N. Kipf, M. Welling, [Variational Graph Auto-Encoders](https://arxiv.org/abs/
 
 Graph Auto-Encoders (GAEs) are end-to-end trainable neural network models for unsupervised learning, clustering and link prediction on graphs. 
 
-![(Variational) Graph Auto-Encoder](misc/figure.png)
+![(Variational) Graph Auto-Encoder](figure.png)
 
 They have successfully been used for:
 * link prediction in large-scale relational data: M. Schlichtkrull et al., [Modeling Relational Data with Graph Convolutional Networks](https://arxiv.org/abs/1703.06103) (2017),
