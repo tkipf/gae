@@ -10,7 +10,7 @@ Graph Auto-Encoders (GAEs) are end-to-end trainable neural network models for un
 ![(Variational) Graph Auto-Encoder](figure.png)
 
 GAEs have successfully been used for:
-* Link prediction in large-scale relational data: M. Schlichtkrull et al., [Modeling Relational Data with Graph Convolutional Networks](https://arxiv.org/abs/1703.06103) (2017),
+* Link prediction in large-scale relational data: M. Schlichtkrull & T. N. Kipf et al., [Modeling Relational Data with Graph Convolutional Networks](https://arxiv.org/abs/1703.06103) (2017),
 * Matrix completion / recommendation with side information: R. Berg et al., [Graph Convolutional Matrix Completion](https://arxiv.org/abs/1706.02263) (2017).
 
 
