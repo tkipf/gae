@@ -29,7 +29,7 @@ def construct_feed_dict(adj_normalized, adj, features, placeholders):
     return feed_dict
 
 
-def mask_test_edges(adj, test_percent=10., val_percent=20.):
+def mask_test_edges(adj, test_percent=30., val_percent=20.):
     # Function to build test set with 10% positive links
     # NOTE: Splits are randomized and results might slightly deviate from reported numbers in the paper.
 
@@ -44,8 +44,8 @@ def mask_test_edges(adj, test_percent=10., val_percent=20.):
     val_edges, val_edges_false, test_edges, test_edges_false = None, None, None, None
 
     # number of positive (and negative) edges in test and val sets:
-    num_test = int(np.floor(edges_positive.shape[0] / test_percent))
-    num_val = int(np.floor(edges_positive.shape[0] / val_percent))
+    num_test = int(np.floor(edges_positive.shape[0] / (100. / test_percent)))
+    num_val = int(np.floor(edges_positive.shape[0] / (100. / val_percent)))
 
     # sample positive edges for test and val sets:
     edges_positive_idx = np.arange(edges_positive.shape[0])
@@ -56,9 +56,9 @@ def mask_test_edges(adj, test_percent=10., val_percent=20.):
     val_edges = edges_positive[val_edge_idx] # positive val edges
     train_edges = np.delete(edges_positive, np.hstack([test_edge_idx, val_edge_idx]), axis=0) # positive train edges
 
-    # the above strategy for sampling without replacement will be slow at sampling negative edges on large graphs, because the pool of negative edges is much much larger due to sparsity
+    # the above strategy for sampling without replacement will not work for sampling negative edges on large graphs, because the pool of negative edges is much much larger due to sparsity
     # therefore we'll use the following strategy:
-    # 1. sample N random linear indices from adjacency matrix WITH REPLACEMENT (without replacement is super slow)
+    # 1. sample random linear indices from adjacency matrix WITH REPLACEMENT (without replacement is super slow). sample more than we need so we'll probably have enough after all the filtering steps.
     # 2. remove any edges that have already been added to the other edge lists
     # 3. convert to (i,j) coordinates
     # 4. swap i and j where i > j, to ensure they're upper triangle elements
@@ -73,7 +73,7 @@ def mask_test_edges(adj, test_percent=10., val_percent=20.):
     idx_test_edges_false = np.empty((0,),dtype='int64')
     while len(test_edges_false) < len(test_edges):
         # step 1:
-        idx = np.random.choice(adj.size, 2*(num_test-len(test_edges_false)), replace=True)
+        idx = np.random.choice(adj.shape[0]**2, 2*(num_test-len(test_edges_false)), replace=True)
         # step 2:
         idx = idx[~np.in1d(idx,positive_idx,assume_unique=True)]
         idx = idx[~np.in1d(idx,idx_test_edges_false,assume_unique=True)]
@@ -86,6 +86,7 @@ def mask_test_edges(adj, test_percent=10., val_percent=20.):
         coords[lowertrimask] = coords[lowertrimask][:,::-1]
         # step 5:
         coords = np.unique(coords,axis=0) # note: coords are now sorted lexicographically
+        np.random.shuffle(coords) # not any more
         # step 6:
         coords = coords[coords[:,0]!=coords[:,1]]
         # step 7:
@@ -99,7 +100,7 @@ def mask_test_edges(adj, test_percent=10., val_percent=20.):
     idx_val_edges_false = np.empty((0,),dtype='int64')
     while len(val_edges_false) < len(val_edges):
         # step 1:
-        idx = np.random.choice(adj.size, 2*(num_val-len(val_edges_false)), replace=True)
+        idx = np.random.choice(adj.shape[0]**2, 2*(num_val-len(val_edges_false)), replace=True)
         # step 2:
         idx = idx[~np.in1d(idx,positive_idx,assume_unique=True)]
         idx = idx[~np.in1d(idx,idx_test_edges_false,assume_unique=True)]
@@ -113,6 +114,7 @@ def mask_test_edges(adj, test_percent=10., val_percent=20.):
         coords[lowertrimask] = coords[lowertrimask][:,::-1]
         # step 5:
         coords = np.unique(coords,axis=0) # note: coords are now sorted lexicographically
+        np.random.shuffle(coords) # not any more
         # step 6:
         coords = coords[coords[:,0]!=coords[:,1]]
         # step 7:
