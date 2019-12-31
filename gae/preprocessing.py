@@ -29,111 +29,68 @@ def construct_feed_dict(adj_normalized, adj, features, placeholders):
     return feed_dict
 
 
-def mask_test_edges(adj, test_percent=30., val_percent=20.):
+def mask_test_edges(adj, val_perc = 20., test_perc = 10.):
     # Function to build test set with 10% positive links
     # NOTE: Splits are randomized and results might slightly deviate from reported numbers in the paper.
 
     # Remove diagonal elements
-    adj = adj - sp.dia_matrix((adj.diagonal()[None, :], [0]), shape=adj.shape)
+    adj = adj - sp.dia_matrix((adj.diagonal()[np.newaxis, :], [0]), shape=adj.shape)
     adj.eliminate_zeros()
     # Check that diag is zero:
-    assert adj.diagonal().sum() == 0
- 
-    edges_positive, _, _ = sparse_to_tuple(adj)
-    edges_positive = edges_positive[edges_positive[:,1] > edges_positive[:,0],:] # filtering out edges from lower triangle of adjacency matrix
-    val_edges, val_edges_false, test_edges, test_edges_false = None, None, None, None
+    assert np.diag(adj.todense()).sum() == 0
 
-    # number of positive (and negative) edges in test and val sets:
-    num_test = int(np.floor(edges_positive.shape[0] / (100. / test_percent)))
-    num_val = int(np.floor(edges_positive.shape[0] / (100. / val_percent)))
+    adj_triu = sp.triu(adj)
+    adj_tuple = sparse_to_tuple(adj_triu)
+    edges = adj_tuple[0]
+    edges_all = sparse_to_tuple(adj)[0]
+    num_test = int(np.floor(edges.shape[0] / test_perc))
+    num_val = int(np.floor(edges.shape[0] / val_perc))
 
-    # sample positive edges for test and val sets:
-    edges_positive_idx = np.arange(edges_positive.shape[0])
-    np.random.shuffle(edges_positive_idx)
-    val_edge_idx = edges_positive_idx[:num_val]
-    test_edge_idx = edges_positive_idx[num_val:(num_val + num_test)]
-    test_edges = edges_positive[test_edge_idx] # positive test edges
-    val_edges = edges_positive[val_edge_idx] # positive val edges
-    train_edges = np.delete(edges_positive, np.hstack([test_edge_idx, val_edge_idx]), axis=0) # positive train edges
+    all_edge_idx = list(range(edges.shape[0]))
+    np.random.shuffle(all_edge_idx)
+    val_edge_idx = all_edge_idx[:num_val]
+    test_edge_idx = all_edge_idx[num_val:(num_val + num_test)]
+    test_edges = edges[test_edge_idx]
+    val_edges = edges[val_edge_idx]
+    train_edges = np.delete(edges, np.hstack([test_edge_idx, val_edge_idx]), axis=0)
+    
+    # To generate the negative samples we use the following procedure:
+    # 1. Construct a full dense matrix
+    # 2. Remove the already existing edges of the graph leaving only the negative edges
+    # 3. Shuffle the indexes of the remaining negative edges
+    # 4. Use the proper amount of edges for validation and testing.
 
-    # the above strategy for sampling without replacement will not work for sampling negative edges on large graphs, because the pool of negative edges is much much larger due to sparsity
-    # therefore we'll use the following strategy:
-    # 1. sample random linear indices from adjacency matrix WITH REPLACEMENT (without replacement is super slow). sample more than we need so we'll probably have enough after all the filtering steps.
-    # 2. remove any edges that have already been added to the other edge lists
-    # 3. convert to (i,j) coordinates
-    # 4. swap i and j where i > j, to ensure they're upper triangle elements
-    # 5. remove any duplicate elements if there are any
-    # 6. remove any diagonal elements
-    # 7. if we don't have enough edges, repeat this process until we get enough
+    # Step 1.
+    full_dense = np.ones(adj.shape)
+    S_full = sp.csr_matrix(full_dense)
+    # Step 2.
+    S_negative = S_full - adj
+    S_negative_triu = sp.triu(S_negative)
+    idx_false = sparse_to_tuple(S_negative_triu)[0]
 
-    positive_idx, _, _ = sparse_to_tuple(adj) # [i,j] coord pairs for all true edges
-    positive_idx = positive_idx[:,0]*adj.shape[0] + positive_idx[:,1] # linear indices
+    # Step 3.
+    false_edges_idx = list(range(idx_false.shape[0]))
+    np.random.shuffle(false_edges_idx)
 
-    test_edges_false = np.empty((0,2),dtype='int64')
-    idx_test_edges_false = np.empty((0,),dtype='int64')
-    while len(test_edges_false) < len(test_edges):
-        # step 1:
-        idx = np.random.choice(adj.shape[0]**2, 2*(num_test-len(test_edges_false)), replace=True)
-        # step 2:
-        idx = idx[~np.in1d(idx,positive_idx,assume_unique=True)]
-        idx = idx[~np.in1d(idx,idx_test_edges_false,assume_unique=True)]
-        # step 3:
-        rowidx = idx // adj.shape[0]
-        colidx = idx % adj.shape[0]
-        coords = np.vstack((rowidx,colidx)).transpose()
-        # step 4:
-        lowertrimask = coords[:,0] > coords[:,1]
-        coords[lowertrimask] = coords[lowertrimask][:,::-1]
-        # step 5:
-        coords = np.unique(coords,axis=0) # note: coords are now sorted lexicographically
-        np.random.shuffle(coords) # not any more
-        # step 6:
-        coords = coords[coords[:,0]!=coords[:,1]]
-        # step 7:
-        coords = coords[:min(num_test,len(idx))]
-        test_edges_false = np.append(test_edges_false,coords,axis=0)
-        idx = idx[:min(num_test,len(idx))]
-        idx_test_edges_false = np.append(idx_test_edges_false, idx)
+    # Step 4.
+    val_edges_false_idx = false_edges_idx[:num_val]
+    test_edges_false_idx = false_edges_idx[num_val:(num_val + num_test)]
+    val_edges_false = idx_false[val_edges_false_idx]
+    test_edges_false = idx_false[test_edges_false_idx]
 
+    def ismember(a, b, tol=5):
+        rows_close = np.all(np.round(a - b[:, None], tol) == 0, axis=-1)
+        return np.any(rows_close)
 
-    val_edges_false = np.empty((0,2),dtype='int64')
-    idx_val_edges_false = np.empty((0,),dtype='int64')
-    while len(val_edges_false) < len(val_edges):
-        # step 1:
-        idx = np.random.choice(adj.shape[0]**2, 2*(num_val-len(val_edges_false)), replace=True)
-        # step 2:
-        idx = idx[~np.in1d(idx,positive_idx,assume_unique=True)]
-        idx = idx[~np.in1d(idx,idx_test_edges_false,assume_unique=True)]
-        idx = idx[~np.in1d(idx,idx_val_edges_false,assume_unique=True)]
-        # step 3:
-        rowidx = idx // adj.shape[0]
-        colidx = idx % adj.shape[0]
-        coords = np.vstack((rowidx,colidx)).transpose()
-        # step 4:
-        lowertrimask = coords[:,0] > coords[:,1]
-        coords[lowertrimask] = coords[lowertrimask][:,::-1]
-        # step 5:
-        coords = np.unique(coords,axis=0) # note: coords are now sorted lexicographically
-        np.random.shuffle(coords) # not any more
-        # step 6:
-        coords = coords[coords[:,0]!=coords[:,1]]
-        # step 7:
-        coords = coords[:min(num_val,len(idx))]
-        val_edges_false = np.append(val_edges_false,coords,axis=0)
-        idx = idx[:min(num_val,len(idx))]
-        idx_val_edges_false = np.append(idx_val_edges_false, idx)
+    assert ~ismember(test_edges_false, edges_all)
+    assert ~ismember(val_edges_false, edges_all)
+    assert ~ismember(val_edges, train_edges)
+    assert ~ismember(test_edges, train_edges)
+    assert ~ismember(val_edges, test_edges)
 
-    # sanity checks:
-    train_edges_linear = train_edges[:,0]*adj.shape[0] + train_edges[:,1]
-    test_edges_linear = test_edges[:,0]*adj.shape[0] + test_edges[:,1]
-    assert not np.any(np.in1d(idx_test_edges_false, positive_idx))
-    assert not np.any(np.in1d(idx_val_edges_false, positive_idx))
-    assert not np.any(np.in1d(val_edges[:,0]*adj.shape[0]+val_edges[:,1], train_edges_linear))
-    assert not np.any(np.in1d(test_edges_linear, train_edges_linear))
-    assert not np.any(np.in1d(val_edges[:,0]*adj.shape[0]+val_edges[:,1], test_edges_linear))
+    data = np.ones(train_edges.shape[0])
 
     # Re-build adj matrix
-    data = np.ones(train_edges.shape[0])
     adj_train = sp.csr_matrix((data, (train_edges[:, 0], train_edges[:, 1])), shape=adj.shape)
     adj_train = adj_train + adj_train.T
 
